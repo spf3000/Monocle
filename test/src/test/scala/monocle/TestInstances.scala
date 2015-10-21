@@ -1,6 +1,6 @@
 package monocle
 
-import monocle.date.{Hour, Minute}
+import monocle.date._
 import org.joda.time.DateTime
 import org.scalacheck.Arbitrary._
 import org.scalacheck.{Arbitrary, Gen}
@@ -54,8 +54,11 @@ trait TestInstances {
 
   implicit val dateTimeEq: Equal[DateTime] = Equal.equalA
 
+  implicit val millisEq: Equal[Millis] = Equal.equalA
   implicit val minuteEq: Equal[Minute] = Equal.equalA
   implicit val hourEq  : Equal[Hour]   = Equal.equalA
+  implicit val monthEq : Equal[Month]  = Equal.equalA
+  implicit val yearEq  : Equal[Year]   = Equal.equalA
 
   // Order instances
 

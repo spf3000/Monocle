@@ -9,4 +9,6 @@ class JodaSpec extends MonocleSuite {
   checkAll("second", LensTests(joda.second))
   checkAll("minute", LensTests(joda.minute))
   checkAll("hour"  , LensTests(joda.hour))
+  checkAll("month" , LensTests(joda.month))
+  checkAll("year"  , LensTests(joda.year))
 }
