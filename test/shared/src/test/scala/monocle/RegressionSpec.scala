@@ -23,4 +23,12 @@ class RegressionSpec extends MonocleSuite {
     stringToBoolean.modify(identity)("false") should be ("false")
   }
 
+  test("#522 "){
+    import monocle.Lens
+    case class Address(streetNumber: Int, streetName: String)
+    val streetNumber = Lens[Address, Int](_.streetNumber)(n => a => a.copy(streetNumber = n))
+
+    streetNumber.get(Address(10, "Hello")) shouldEqual 10
+  }
+
 }
