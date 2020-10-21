@@ -12,10 +12,10 @@ import cats.syntax.either._
 class TraversalSpec extends MonocleSuite {
   case class Location(latitude: Int, longitude: Int, name: String)
 
-  val coordinates: Traversal[Location, Int] = Traversal.apply2[Location, Int](_.latitude, _.longitude) {
-    case (newLat, newLong, oldLoc) =>
+  val coordinates: Traversal[Location, Int] =
+    Traversal.apply2[Location, Int](_.latitude, _.longitude) { case (newLat, newLong, oldLoc) =>
       oldLoc.copy(latitude = newLat, longitude = newLong)
-  }
+    }
 
   def eachL[A]: Traversal[List[A], A]               = PTraversal.fromTraverse[List, A, A]
   val eachLi: Traversal[List[Int], Int]             = eachL[Int]
@@ -44,7 +44,8 @@ class TraversalSpec extends MonocleSuite {
   val l7: Lens[ManyPropObject, Int] = GenLens[ManyPropObject](_.p8)
 
   // the 7-lenses Traversal generated using applyN
-  val traversalN: Traversal[ManyPropObject, Int] = Traversal.applyN(l1, l2, l3, l4, l5, l6, l7)
+  val traversalN: Traversal[ManyPropObject, Int] =
+    Traversal.applyN(l1, l2, l3, l4, l5, l6, l7)
 
   // the stub for generating random test objects
   implicit val manyPropObjectGen: Arbitrary[ManyPropObject] = Arbitrary(for {
@@ -82,7 +83,9 @@ class TraversalSpec extends MonocleSuite {
   }
 
   test("Traversal has a Choice instance") {
-    Choice[Traversal].choice(eachL[Int], coordinates).modify(_ + 1)(Left(List(1, 2, 3))) shouldEqual Left(List(2, 3, 4))
+    Choice[Traversal]
+      .choice(eachL[Int], coordinates)
+      .modify(_ + 1)(Left(List(1, 2, 3))) shouldEqual Left(List(2, 3, 4))
   }
 
   test("foldMap") {
@@ -145,5 +148,33 @@ class TraversalSpec extends MonocleSuite {
     eachLi.parModifyF[Either[Unit, *]](i => (i + 1).asRight[Unit])(List(1, 2, 3, 4)) shouldEqual Right(List(2, 3, 4, 5))
     // `Left` values should be accumulated through `Validated`.
     eachLi.parModifyF[Either[String, *]](_.toString.asLeft[Int])(List(1, 2, 3, 4)) shouldEqual Left("1234")
+  }
+
+  test("to") {
+    eachLi.to(_.toString()).getAll(List(1, 2, 3)) shouldEqual List("1", "2", "3")
+  }
+
+  test("some") {
+    val numbers   = List(Some(1), None, Some(2), None)
+    val traversal = Traversal.fromTraverse[List, Option[Int]]
+
+    traversal.some.set(5)(numbers) shouldEqual List(Some(5), None, Some(5), None)
+    numbers.applyTraversal(traversal).some.set(5) shouldEqual List(Some(5), None, Some(5), None)
+  }
+
+  test("withDefault") {
+    val numbers   = List(Some(1), None, Some(2), None)
+    val traversal = Traversal.fromTraverse[List, Option[Int]]
+
+    traversal.withDefault(0).modify(_ + 1)(numbers) shouldEqual List(Some(2), Some(1), Some(3), Some(1))
+    numbers.applyTraversal(traversal).withDefault(0).modify(_ + 1) shouldEqual List(Some(2), Some(1), Some(3), Some(1))
+  }
+
+  test("each") {
+    val numbers   = List(List(1, 2, 3), Nil, List(4), Nil)
+    val traversal = Traversal.fromTraverse[List, List[Int]]
+
+    traversal.each.getAll(numbers) shouldEqual List(1, 2, 3, 4)
+    numbers.applyTraversal(traversal).each.getAll shouldEqual List(1, 2, 3, 4)
   }
 }

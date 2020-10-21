@@ -7,15 +7,18 @@ class FoldSpec extends MonocleSuite {
   val eachLi: Fold[List[Int], Int]             = Fold.fromFoldable[List, Int]
   def eachL2[A, B]: Fold[List[(A, B)], (A, B)] = Fold.fromFoldable[List, (A, B)]
 
-  def nestedListFold[A] = new Fold[List[List[A]], List[A]] {
-    def foldMap[M: Monoid](f: (List[A]) => M)(s: List[List[A]]): M =
-      s.foldRight(Monoid[M].empty)((l, acc) => Monoid[M].combine(f(l), acc))
-  }
+  def nestedListFold[A] =
+    new Fold[List[List[A]], List[A]] {
+      def foldMap[M: Monoid](f: (List[A]) => M)(s: List[List[A]]): M =
+        s.foldRight(Monoid[M].empty)((l, acc) => Monoid[M].combine(f(l), acc))
+    }
 
   // test implicit resolution of type classes
 
   test("Fold has a Compose instance") {
-    Compose[Fold].compose(eachLi, nestedListFold[Int]).fold(List(List(1, 2, 3), List(4, 5), List(6))) shouldEqual 21
+    Compose[Fold]
+      .compose(eachLi, nestedListFold[Int])
+      .fold(List(List(1, 2, 3), List(4, 5), List(6))) shouldEqual 21
   }
 
   test("Fold has a Category instance") {
@@ -23,7 +26,9 @@ class FoldSpec extends MonocleSuite {
   }
 
   test("Fold has a Choice instance") {
-    Choice[Fold].choice(eachLi, Choice[Fold].id[Int]).fold(Left(List(1, 2, 3))) shouldEqual 6
+    Choice[Fold]
+      .choice(eachLi, Choice[Fold].id[Int])
+      .fold(Left(List(1, 2, 3))) shouldEqual 6
   }
 
   test("foldMap") {
@@ -82,5 +87,33 @@ class FoldSpec extends MonocleSuite {
   test("select (unsatisfied predicate)") {
     val select = Fold.select[List[Int]](_.endsWith(List(2, 3)))
     select.getAll(List(1, 2, 3, 4)) shouldEqual List()
+  }
+
+  test("to") {
+    eachLi.to(_.toString()).getAll(List(1, 2, 3)) shouldEqual List("1", "2", "3")
+  }
+
+  test("some") {
+    val numbers = List(Some(1), None, Some(2), None)
+    val fold    = Fold.fromFoldable[List, Option[Int]]
+
+    fold.some.getAll(numbers) shouldEqual List(1, 2)
+    numbers.applyFold(fold).some.getAll shouldEqual List(1, 2)
+  }
+
+  test("withDefault") {
+    val numbers = List(Some(1), None, Some(2), None)
+    val fold    = Fold.fromFoldable[List, Option[Int]]
+
+    fold.withDefault(0).getAll(numbers) shouldEqual List(1, 0, 2, 0)
+    numbers.applyFold(fold).withDefault(0).getAll shouldEqual List(1, 0, 2, 0)
+  }
+
+  test("each") {
+    val numbers = List(List(1, 2, 3), Nil, List(4), Nil)
+    val fold    = Fold.fromFoldable[List, List[Int]]
+
+    fold.each.getAll(numbers) shouldEqual List(1, 2, 3, 4)
+    numbers.applyFold(fold).each.getAll shouldEqual List(1, 2, 3, 4)
   }
 }

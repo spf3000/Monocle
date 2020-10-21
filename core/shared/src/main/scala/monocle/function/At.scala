@@ -5,8 +5,7 @@ import monocle.{Iso, Lens}
 import scala.annotation.implicitNotFound
 import scala.collection.immutable.{ListMap, SortedMap}
 
-/**
-  * Typeclass that defines a [[Lens]] from an `S` to an `A` at an index `I`
+/** Typeclass that defines a [[Lens]] from an `S` to an `A` at an index `I`
   * @tparam S source of [[Lens]]
   * @tparam I index
   * @tparam A target of [[Lens]], `A` is supposed to be unique for a given pair `(S, I)`
@@ -33,13 +32,16 @@ object At extends AtFunctions {
     (i: I) => Lens(get(i))(set(i))
 
   /** lift an instance of [[At]] using an [[Iso]] */
-  def fromIso[S, U, I, A](iso: Iso[S, U])(implicit ev: At[U, I, A]): At[S, I, A] = At(
-    iso composeLens ev.at(_)
-  )
+  def fromIso[S, U, I, A](iso: Iso[S, U])(implicit ev: At[U, I, A]): At[S, I, A] =
+    At(
+      iso composeLens ev.at(_)
+    )
 
-  /************************************************************************************************/
-  /** Std instances                                                                               */
-  /************************************************************************************************/
+  /** *********************************************************************************************
+    */
+  /** Std instances */
+  /** *********************************************************************************************
+    */
   implicit def atSortedMap[K, V]: At[SortedMap[K, V], K, Option[V]] =
     At(i => Lens((_: SortedMap[K, V]).get(i))(optV => map => optV.fold(map - i)(v => map + (i -> v))))
 

@@ -90,4 +90,42 @@ class LensSpec extends MonocleSuite {
   test("modify") {
     x.modify(_ + 1)(Point(9, 2)) shouldEqual Point(10, 2)
   }
+
+  test("to") {
+    x.to(_.toString()).get(Point(1, 2)) shouldEqual "1"
+  }
+
+  test("some") {
+    case class SomeTest(x: Int, y: Option[Int])
+    val obj = SomeTest(1, Some(2))
+
+    val lens = GenLens[SomeTest](_.y)
+
+    lens.some.getOption(obj) shouldEqual Some(2)
+    obj.applyLens(lens).some.getOption shouldEqual Some(2)
+  }
+
+  test("withDefault") {
+    case class SomeTest(x: Int, y: Option[Int])
+    val objSome = SomeTest(1, Some(2))
+    val objNone = SomeTest(1, None)
+
+    val lens = GenLens[SomeTest](_.y)
+
+    lens.withDefault(0).get(objSome) shouldEqual 2
+    lens.withDefault(0).get(objNone) shouldEqual 0
+
+    objNone.applyLens(lens).withDefault(0).get shouldEqual 0
+  }
+
+  test("each") {
+    case class SomeTest(x: Int, y: List[Int])
+    val obj = SomeTest(1, List(1, 2, 3))
+
+    val lens = GenLens[SomeTest](_.y)
+
+    lens.each.getAll(obj) shouldEqual List(1, 2, 3)
+    obj.applyLens(lens).each.getAll shouldEqual List(1, 2, 3)
+  }
+
 }

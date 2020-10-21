@@ -1,11 +1,11 @@
 package monocle
 
-import cats.{Monoid, Semigroupal}
+import cats.{Eq, Monoid, Semigroupal}
 import cats.arrow.{Arrow, Choice}
 import cats.implicits._
+import monocle.function.Each
 
-/**
-  * A [[Getter]] can be seen as a glorified get method between
+/** A [[Getter]] can be seen as a glorified get method between
   * a type S and a type A.
   *
   * A [[Getter]] is also a valid [[Fold]]
@@ -18,7 +18,7 @@ abstract class Getter[S, A] extends Serializable { self =>
   /** get the target of a [[Getter]] */
   def get(s: S): A
 
-  /** find if the target satisfies the predicate  */
+  /** find if the target satisfies the predicate */
   @inline final def find(p: A => Boolean): S => Option[A] =
     s => Some(get(s)).filter(p)
 
@@ -49,12 +49,29 @@ abstract class Getter[S, A] extends Serializable { self =>
   @inline final def right[C]: Getter[Either[C, S], Either[C, A]] =
     Getter[Either[C, S], Either[C, A]](_.map(get))
 
-  /*************************************************************/
-  /** Compose methods between a [[Getter]] and another Optics  */
-  /*************************************************************/
+  def each[C](implicit evEach: Each[A, C]): Fold[S, C] =
+    composeTraversal(evEach.each)
+
+  def some[A1](implicit ev1: A =:= Option[A1]): Fold[S, A1] =
+    adapt[Option[A1]] composePrism (std.option.pSome)
+
+  def withDefault[A1: Eq](defaultValue: A1)(implicit ev1: A =:= Option[A1]): Getter[S, A1] =
+    adapt[Option[A1]] composeIso (std.option.withDefault(defaultValue))
+
+  private def adapt[A1](implicit evA: A =:= A1): Getter[S, A1] =
+    evA.substituteCo[Getter[S, *]](this)
+
+  /** **********************************************************
+    */
+  /** Compose methods between a [[Getter]] and another Optics */
+  /** **********************************************************
+    */
   /** compose a [[Getter]] with a [[Fold]] */
   @inline final def composeFold[B](other: Fold[A, B]): Fold[S, B] =
     asFold composeFold other
+
+  /** Compose with a function lifted into a Getter */
+  @inline def to[C](f: A => C): Getter[S, C] = composeGetter(Getter(f))
 
   /** compose a [[Getter]] with a [[Getter]] */
   @inline final def composeGetter[B](other: Getter[A, B]): Getter[S, B] =
@@ -80,9 +97,11 @@ abstract class Getter[S, A] extends Serializable { self =>
   @inline final def composeIso[B, C, D](other: PIso[A, B, C, D]): Getter[S, C] =
     composeGetter(other.asGetter)
 
-  /********************************************/
+  /** *****************************************
+    */
   /** Experimental aliases of compose methods */
-  /********************************************/
+  /** *****************************************
+    */
   /** alias to composeTraversal */
   @inline final def ^|->>[B, C, D](other: PTraversal[A, B, C, D]): Fold[S, C] =
     composeTraversal(other)
@@ -103,14 +122,17 @@ abstract class Getter[S, A] extends Serializable { self =>
   @inline final def ^<->[B, C, D](other: PIso[A, B, C, D]): Getter[S, C] =
     composeIso(other)
 
-  /******************************************************************/
+  /** ***************************************************************
+    */
   /** Transformation methods to view a [[Getter]] as another Optics */
-  /******************************************************************/
+  /** ***************************************************************
+    */
   /** view a [[Getter]] with a [[Fold]] */
-  @inline final def asFold: Fold[S, A] = new Fold[S, A] {
-    def foldMap[M: Monoid](f: A => M)(s: S): M =
-      f(get(s))
-  }
+  @inline final def asFold: Fold[S, A] =
+    new Fold[S, A] {
+      def foldMap[M: Monoid](f: A => M)(s: S): M =
+        f(get(s))
+    }
 }
 
 object Getter extends GetterInstances {
@@ -142,9 +164,10 @@ sealed abstract class GetterInstances extends GetterInstances0 {
       g composeGetter f
   }
 
-  implicit def getterSemigroupal[S]: Semigroupal[Getter[S, ?]] = new Semigroupal[Getter[S, ?]] {
-    override def product[A, B](a: Getter[S, A], b: Getter[S, B]) = a zip b
-  }
+  implicit def getterSemigroupal[S]: Semigroupal[Getter[S, *]] =
+    new Semigroupal[Getter[S, *]] {
+      override def product[A, B](a: Getter[S, A], b: Getter[S, B]) = a zip b
+    }
 }
 
 sealed abstract class GetterInstances0 {

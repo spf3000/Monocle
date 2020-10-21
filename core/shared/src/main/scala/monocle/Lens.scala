@@ -1,11 +1,11 @@
 package monocle
 
-import cats.{Applicative, Functor, Monoid}
+import cats.{Applicative, Eq, Functor, Monoid}
 import cats.arrow.Choice
 import cats.syntax.either._
+import monocle.function.Each
 
-/**
-  * A [[PLens]] can be seen as a pair of functions:
+/** A [[PLens]] can be seen as a pair of functions:
   *  - `get: S      => A` i.e. from an `S`, we can extract an `A`
   *  - `set: (B, S) => T` i.e. if we replace an `A` by a `B` in an `S`, we obtain a `T`
   *
@@ -60,38 +60,49 @@ abstract class PLens[S, T, A, B] extends Serializable { self =>
 
   /** pair two disjoint [[PLens]] */
   @inline final def split[S1, T1, A1, B1](other: PLens[S1, T1, A1, B1]): PLens[(S, S1), (T, T1), (A, A1), (B, B1)] =
-    PLens[(S, S1), (T, T1), (A, A1), (B, B1)] {
-      case (s, s1) => (self.get(s), other.get(s1))
+    PLens[(S, S1), (T, T1), (A, A1), (B, B1)] { case (s, s1) =>
+      (self.get(s), other.get(s1))
     } {
-      case (b, b1) => {
-        case (s, s1) => (self.set(b)(s), other.set(b1)(s1))
+      case (b, b1) => { case (s, s1) =>
+        (self.set(b)(s), other.set(b1)(s1))
       }
     }
 
   @inline final def first[C]: PLens[(S, C), (T, C), (A, C), (B, C)] =
-    PLens[(S, C), (T, C), (A, C), (B, C)] {
-      case (s, c) => (get(s), c)
+    PLens[(S, C), (T, C), (A, C), (B, C)] { case (s, c) =>
+      (get(s), c)
     } {
-      case (b, c) => {
-        case (s, _) => (set(b)(s), c)
+      case (b, c) => { case (s, _) =>
+        (set(b)(s), c)
       }
     }
 
   @inline final def second[C]: PLens[(C, S), (C, T), (C, A), (C, B)] =
-    PLens[(C, S), (C, T), (C, A), (C, B)] {
-      case (c, s) => (c, get(s))
+    PLens[(C, S), (C, T), (C, A), (C, B)] { case (c, s) =>
+      (c, get(s))
     } {
-      case (c, b) => {
-        case (_, s) => (c, set(b)(s))
+      case (c, b) => { case (_, s) =>
+        (c, set(b)(s))
       }
     }
 
-  /***********************************************************/
+  def some[A1, B1](implicit ev1: A =:= Option[A1], ev2: B =:= Option[B1]): POptional[S, T, A1, B1] =
+    adapt[Option[A1], Option[B1]] composePrism (std.option.pSome)
+
+  private[monocle] def adapt[A1, B1](implicit evA: A =:= A1, evB: B =:= B1): PLens[S, T, A1, B1] =
+    evB.substituteCo[PLens[S, T, A1, *]](evA.substituteCo[PLens[S, T, *, B]](this))
+
+  /** ********************************************************
+    */
   /** Compose methods between a [[PLens]] and another Optics */
-  /***********************************************************/
+  /** ********************************************************
+    */
   /** compose a [[PLens]] with a [[Fold]] */
   @inline final def composeFold[C](other: Fold[A, C]): Fold[S, C] =
     asFold composeFold other
+
+  /** Compose with a function lifted into a Getter */
+  @inline def to[C](f: A => C): Getter[S, C] = composeGetter(Getter(f))
 
   /** compose a [[PLens]] with a [[Getter]] */
   @inline final def composeGetter[C](other: Getter[A, C]): Getter[S, C] =
@@ -133,9 +144,11 @@ abstract class PLens[S, T, A, B] extends Serializable { self =>
   @inline final def composeIso[C, D](other: PIso[A, B, C, D]): PLens[S, T, C, D] =
     composeLens(other.asLens)
 
-  /********************************************/
+  /** *****************************************
+    */
   /** Experimental aliases of compose methods */
-  /********************************************/
+  /** *****************************************
+    */
   /** alias to composeTraversal */
   @inline final def ^|->>[C, D](other: PTraversal[A, B, C, D]): PTraversal[S, T, C, D] =
     composeTraversal(other)
@@ -156,9 +169,11 @@ abstract class PLens[S, T, A, B] extends Serializable { self =>
   @inline final def ^<->[C, D](other: PIso[A, B, C, D]): PLens[S, T, C, D] =
     composeIso(other)
 
-  /************************************************************************************************/
-  /** Transformation methods to view a [[PLens]] as another Optics                                */
-  /************************************************************************************************/
+  /** *********************************************************************************************
+    */
+  /** Transformation methods to view a [[PLens]] as another Optics */
+  /** *********************************************************************************************
+    */
   /** view a [[PLens]] as a [[Fold]] */
   @inline final def asFold: Fold[S, A] =
     new Fold[S, A] {
@@ -216,8 +231,7 @@ object PLens extends LensInstances {
       _.fold(identity, identity)
     )(t => _.bimap(_ => t, _ => t))
 
-  /**
-    * create a [[PLens]] using a pair of functions: one to get the target, one to set the target.
+  /** create a [[PLens]] using a pair of functions: one to get the target, one to set the target.
     * @see macro module for methods generating [[PLens]] with less boiler plate
     */
   def apply[S, T, A, B](_get: S => A)(_set: B => S => T): PLens[S, T, A, B] =
@@ -234,6 +248,9 @@ object PLens extends LensInstances {
       def modify(f: A => B): S => T =
         s => _set(f(_get(s)))(s)
     }
+
+  implicit def lensSyntax[S, A](self: Lens[S, A]): LensSyntax[S, A] =
+    new LensSyntax(self)
 }
 
 object Lens {
@@ -259,4 +276,14 @@ sealed abstract class LensInstances {
     def compose[A, B, C](f: Lens[B, C], g: Lens[A, B]): Lens[A, C] =
       g composeLens f
   }
+}
+
+/** Extension methods for monomorphic Lens
+  */
+final case class LensSyntax[S, A](private val self: Lens[S, A]) extends AnyVal {
+  def each[C](implicit evEach: Each[A, C]): Traversal[S, C] =
+    self composeTraversal evEach.each
+
+  def withDefault[A1: Eq](defaultValue: A1)(implicit evOpt: A =:= Option[A1]): Lens[S, A1] =
+    self.adapt[Option[A1], Option[A1]] composeIso (std.option.withDefault(defaultValue))
 }

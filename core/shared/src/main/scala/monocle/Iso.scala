@@ -1,12 +1,12 @@
 package monocle
 
-import cats.{Applicative, Functor, Monoid}
+import cats.{Applicative, Eq, Functor, Monoid}
 import cats.arrow.Category
 import cats.evidence.{<~<, Is}
 import cats.syntax.either._
+import monocle.function.Each
 
-/**
-  * [[Iso]] is a type alias for [[PIso]] where `S` = `A` and `T` = `B`:
+/** [[Iso]] is a type alias for [[PIso]] where `S` = `A` and `T` = `B`:
   * {{{
   * type Iso[S, A] = PIso[S, S, A, A]
   * }}}
@@ -56,7 +56,7 @@ abstract class PIso[S, T, A, B] extends Serializable { self =>
   def mapping[F[_]: Functor]: PIso[F[S], F[T], F[A], F[B]] =
     PIso[F[S], F[T], F[A], F[B]](fs => Functor[F].map(fs)(self.get))(fb => Functor[F].map(fb)(self.reverseGet))
 
-  /** find if the target satisfies the predicate  */
+  /** find if the target satisfies the predicate */
   @inline final def find(p: A => Boolean): S => Option[A] =
     s => Some(get(s)).filter(p)
 
@@ -78,24 +78,24 @@ abstract class PIso[S, T, A, B] extends Serializable { self =>
 
   /** pair two disjoint [[PIso]] */
   @inline final def split[S1, T1, A1, B1](other: PIso[S1, T1, A1, B1]): PIso[(S, S1), (T, T1), (A, A1), (B, B1)] =
-    PIso[(S, S1), (T, T1), (A, A1), (B, B1)] {
-      case (s, s1) => (get(s), other.get(s1))
-    } {
-      case (b, b1) => (reverseGet(b), other.reverseGet(b1))
+    PIso[(S, S1), (T, T1), (A, A1), (B, B1)] { case (s, s1) =>
+      (get(s), other.get(s1))
+    } { case (b, b1) =>
+      (reverseGet(b), other.reverseGet(b1))
     }
 
   @inline final def first[C]: PIso[(S, C), (T, C), (A, C), (B, C)] =
-    PIso[(S, C), (T, C), (A, C), (B, C)] {
-      case (s, c) => (get(s), c)
-    } {
-      case (b, c) => (reverseGet(b), c)
+    PIso[(S, C), (T, C), (A, C), (B, C)] { case (s, c) =>
+      (get(s), c)
+    } { case (b, c) =>
+      (reverseGet(b), c)
     }
 
   @inline final def second[C]: PIso[(C, S), (C, T), (C, A), (C, B)] =
-    PIso[(C, S), (C, T), (C, A), (C, B)] {
-      case (c, s) => (c, get(s))
-    } {
-      case (c, b) => (c, reverseGet(b))
+    PIso[(C, S), (C, T), (C, A), (C, B)] { case (c, s) =>
+      (c, get(s))
+    } { case (c, b) =>
+      (c, reverseGet(b))
     }
 
   @inline final def left[C]: PIso[Either[S, C], Either[T, C], Either[A, C], Either[B, C]] =
@@ -104,12 +104,23 @@ abstract class PIso[S, T, A, B] extends Serializable { self =>
   @inline final def right[C]: PIso[Either[C, S], Either[C, T], Either[C, A], Either[C, B]] =
     PIso[Either[C, S], Either[C, T], Either[C, A], Either[C, B]](_.map(get))(_.map(reverseGet))
 
-  /**********************************************************/
+  def some[A1, B1](implicit ev1: A =:= Option[A1], ev2: B =:= Option[B1]): PPrism[S, T, A1, B1] =
+    adapt[Option[A1], Option[B1]] composePrism (std.option.pSome)
+
+  private[monocle] def adapt[A1, B1](implicit evA: A =:= A1, evB: B =:= B1): PIso[S, T, A1, B1] =
+    evB.substituteCo[PIso[S, T, A1, *]](evA.substituteCo[PIso[S, T, *, B]](this))
+
+  /** *******************************************************
+    */
   /** Compose methods between a [[PIso]] and another Optics */
-  /**********************************************************/
+  /** *******************************************************
+    */
   /** compose a [[PIso]] with a [[Fold]] */
   @inline final def composeFold[C](other: Fold[A, C]): Fold[S, C] =
     asFold composeFold other
+
+  /** Compose with a function lifted into a Getter */
+  @inline def to[C](f: A => C): Getter[S, C] = composeGetter(Getter(f))
 
   /** compose a [[PIso]] with a [[Getter]] */
   @inline final def composeGetter[C](other: Getter[A, C]): Getter[S, C] =
@@ -157,9 +168,11 @@ abstract class PIso[S, T, A, B] extends Serializable { self =>
         }
     }
 
-  /********************************************/
+  /** *****************************************
+    */
   /** Experimental aliases of compose methods */
-  /********************************************/
+  /** *****************************************
+    */
   /** alias to composeTraversal */
   @inline final def ^|->>[C, D](other: PTraversal[A, B, C, D]): PTraversal[S, T, C, D] =
     composeTraversal(other)
@@ -180,9 +193,11 @@ abstract class PIso[S, T, A, B] extends Serializable { self =>
   @inline final def ^<->[C, D](other: PIso[A, B, C, D]): PIso[S, T, C, D] =
     composeIso(other)
 
-  /****************************************************************/
+  /** *************************************************************
+    */
   /** Transformation methods to view a [[PIso]] as another Optics */
-  /****************************************************************/
+  /** *************************************************************
+    */
   /** view a [[PIso]] as a [[Fold]] */
   @inline final def asFold: Fold[S, A] =
     new Fold[S, A] {
@@ -259,11 +274,13 @@ abstract class PIso[S, T, A, B] extends Serializable { self =>
         self.modifyF(f)(s)
     }
 
-  /*************************************************************************/
+  /** **********************************************************************
+    */
   /** Apply methods to treat a [[PIso]] as smart constructors for type T */
-  /*************************************************************************/
+  /** **********************************************************************
+    */
   def apply()(implicit ev: Is[B, Unit]): T =
-    ev.substitute[PIso[S, T, A, ?]](self).reverseGet(())
+    ev.substitute[PIso[S, T, A, *]](self).reverseGet(())
 
   def apply(b: B): T = reverseGet(b)
 
@@ -308,8 +325,7 @@ object PIso extends IsoInstances {
         }
     }
 
-  /**
-    * create a [[PIso]] between any type and itself. id is the zero element of optics composition,
+  /** create a [[PIso]] between any type and itself. id is the zero element of optics composition,
     * for all optics o of type O (e.g. Lens, Iso, Prism, ...):
     * o      composeIso Iso.id == o
     * Iso.id composeO   o        == o (replace composeO by composeLens, composeIso, composePrism, ...)
@@ -325,6 +341,9 @@ object PIso extends IsoInstances {
           def reverse: PIso[S, T, S, T] = self
         }
     }
+
+  implicit def isoSyntax[S, A](self: Iso[S, A]): IsoSyntax[S, A] =
+    new IsoSyntax(self)
 }
 
 object Iso {
@@ -336,6 +355,10 @@ object Iso {
   /** alias for [[PIso]] id when S = T and A = B */
   def id[S]: Iso[S, S] =
     PIso.id[S, S]
+
+  /** create an [[Iso]] from a function that is its own inverse */
+  def involuted[A](update: A => A): Iso[A, A] =
+    Iso(update)(update)
 }
 
 sealed abstract class IsoInstances {
@@ -346,4 +369,13 @@ sealed abstract class IsoInstances {
     def compose[A, B, C](f: Iso[B, C], g: Iso[A, B]): Iso[A, C] =
       g composeIso f
   }
+}
+
+/** Extension methods for monomorphic Iso */
+final case class IsoSyntax[S, A](private val self: Iso[S, A]) extends AnyVal {
+  def each[C](implicit evEach: Each[A, C]): Traversal[S, C] =
+    self composeTraversal evEach.each
+
+  def withDefault[A1: Eq](defaultValue: A1)(implicit evOpt: A =:= Option[A1]): Iso[S, A1] =
+    self.adapt[Option[A1], Option[A1]] composeIso (std.option.withDefault(defaultValue))
 }

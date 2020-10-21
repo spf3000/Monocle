@@ -9,8 +9,8 @@ import cats.Eq
 import cats.arrow.{Category, Compose}
 
 class IsoSpec extends MonocleSuite {
-  val _nullary: Iso[Nullary, Unit] = Iso[Nullary, Unit](n => ()) {
-    case () => Nullary()
+  val _nullary: Iso[Nullary, Unit] = Iso[Nullary, Unit](n => ()) { case () =>
+    Nullary()
   }
   val _unary: Iso[Unary, Int] = Iso[Unary, Int](_.i)(Unary)
   val _binary: Iso[Binary, (String, Int)] =
@@ -23,8 +23,9 @@ class IsoSpec extends MonocleSuite {
   implicit val intWrapperEq                         = Eq.fromUniversalEquals[IntWrapper]
 
   case class IdWrapper[A](value: A)
-  implicit def idWrapperGen[A: Arbitrary]: Arbitrary[IdWrapper[A]] = Arbitrary(arbitrary[A].map(IdWrapper.apply))
-  implicit def idWrapperEq[A: Eq]: Eq[IdWrapper[A]]                = Eq.fromUniversalEquals
+  implicit def idWrapperGen[A: Arbitrary]: Arbitrary[IdWrapper[A]] =
+    Arbitrary(arbitrary[A].map(IdWrapper.apply))
+  implicit def idWrapperEq[A: Eq]: Eq[IdWrapper[A]] = Eq.fromUniversalEquals
 
   case object AnObject
   implicit val anObjectGen: Arbitrary[AnObject.type] = Arbitrary(Gen.const(AnObject))
@@ -35,10 +36,14 @@ class IsoSpec extends MonocleSuite {
   implicit val emptyCaseEq                        = Eq.fromUniversalEquals[EmptyCase]
 
   case class EmptyCaseType[A]()
-  implicit def emptyCaseTypeGen[A]: Arbitrary[EmptyCaseType[A]] = Arbitrary(Gen.const(EmptyCaseType()))
-  implicit def emptyCaseTypeEq[A]                               = Eq.fromUniversalEquals[EmptyCaseType[A]]
+  implicit def emptyCaseTypeGen[A]: Arbitrary[EmptyCaseType[A]] =
+    Arbitrary(Gen.const(EmptyCaseType()))
+  implicit def emptyCaseTypeEq[A] = Eq.fromUniversalEquals[EmptyCaseType[A]]
 
   val iso = Iso[IntWrapper, Int](_.i)(IntWrapper.apply)
+  val involutedListReverse =
+    Iso.involuted[List[Int]](_.reverse) // ∀ {T} -> List(ts: T*).reverse.reverse == List(ts: T*)
+  val involutedTwoMinusN = Iso.involuted[Int](2 - _) //  ∀ {n : Int} -> n == 2 - (2 - n)
 
   checkAll("apply Iso", IsoTests(iso))
   checkAll("GenIso", IsoTests(GenIso[IntWrapper, Int]))
@@ -48,6 +53,9 @@ class IsoSpec extends MonocleSuite {
   checkAll("GenIso.unit empty case class with type param", IsoTests(GenIso.unit[EmptyCaseType[Int]]))
 
   checkAll("Iso id", IsoTests(Iso.id[Int]))
+
+  checkAll("Iso involutedListReverse", IsoTests(involutedListReverse))
+  checkAll("Iso involutedTwoMinusN", IsoTests(involutedTwoMinusN))
 
   checkAll("Iso.asLens", LensTests(iso.asLens))
   checkAll("Iso.asPrism", PrismTests(iso.asPrism))
@@ -86,8 +94,10 @@ class IsoSpec extends MonocleSuite {
   }
 
   test("unapply") {
-    (Nullary() match { case _nullary(unit)       => unit }) shouldEqual (())
-    (Unary(3) match { case _unary(value)         => value * 2 }) shouldEqual 6
+    // format: off
+    (Nullary() match { case _nullary(unit) => unit }) shouldEqual (())
+    // format: on
+    (Unary(3) match { case _unary(value) => value * 2 }) shouldEqual 6
     (Binary("foo", 7) match { case _binary(s, i) => s + i }) shouldEqual "foo7"
     (Quintary('x', true, "bar", 13, 0.4) match {
       case _quintary(c, b, s, i, f) => "" + c + b + s + i + f
@@ -120,6 +130,23 @@ class IsoSpec extends MonocleSuite {
     iso.modify(_ + 1)(IntWrapper(0)) shouldEqual IntWrapper(1)
   }
 
+  test("involuted") {
+    involutedListReverse.get(List(1, 2, 3)) shouldEqual List(3, 2, 1)
+    involutedListReverse.reverseGet(List(1, 2, 3)) shouldEqual List(3, 2, 1)
+
+    involutedListReverse.reverse.get(List(1, 2, 3)) shouldEqual involutedListReverse
+      .get(List(1, 2, 3))
+    involutedListReverse.reverse.reverseGet(List(1, 2, 3)) shouldEqual involutedListReverse
+      .reverseGet(List(1, 2, 3))
+
+    involutedTwoMinusN.get(5) shouldEqual -3
+    involutedTwoMinusN.reverseGet(5) shouldEqual -3
+
+    involutedTwoMinusN.reverse.get(5) shouldEqual involutedTwoMinusN.get(5)
+    involutedTwoMinusN.reverse.reverseGet(5) shouldEqual involutedTwoMinusN
+      .reverseGet(5)
+  }
+
   test("GenIso nullary equality") {
     GenIso.unit[Nullary] shouldEqual _nullary
   }
@@ -134,5 +161,42 @@ class IsoSpec extends MonocleSuite {
 
   test("GenIso quintary equality") {
     GenIso.fields[Quintary] shouldEqual _quintary
+  }
+
+  test("to") {
+    iso.to(_.toString()).get(IntWrapper(5)) shouldEqual "5"
+  }
+
+  test("some") {
+    case class SomeTest(y: Option[Int])
+    val obj = SomeTest(Some(2))
+
+    val iso = Iso[SomeTest, Option[Int]](_.y)(SomeTest)
+
+    iso.some.getOption(obj) shouldEqual Some(2)
+    obj.applyIso(iso).some.getOption shouldEqual Some(2)
+  }
+
+  test("withDefault") {
+    case class SomeTest(y: Option[Int])
+    val objSome = SomeTest(Some(2))
+    val objNone = SomeTest(None)
+
+    val iso = Iso[SomeTest, Option[Int]](_.y)(SomeTest)
+
+    iso.withDefault(0).get(objSome) shouldEqual 2
+    iso.withDefault(0).get(objNone) shouldEqual 0
+
+    objNone.applyIso(iso).withDefault(0).get shouldEqual 0
+  }
+
+  test("each") {
+    case class SomeTest(y: List[Int])
+    val obj = SomeTest(List(1, 2, 3))
+
+    val iso = Iso[SomeTest, List[Int]](_.y)(SomeTest)
+
+    iso.each.getAll(obj) shouldEqual List(1, 2, 3)
+    obj.applyIso(iso).each.getAll shouldEqual List(1, 2, 3)
   }
 }

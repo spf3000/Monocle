@@ -1,16 +1,17 @@
 package monocle
 
 import monocle.law.discipline.{OptionalTests, SetterTests, TraversalTests}
-
 import cats.arrow.{Category, Choice, Compose}
+import monocle.macros.GenLens
 
 class OptionalSpec extends MonocleSuite {
-  def headOption[A]: Optional[List[A], A] = Optional[List[A], A](_.headOption) { a =>
-    {
-      case x :: xs => a :: xs
-      case Nil     => Nil
+  def headOption[A]: Optional[List[A], A] =
+    Optional[List[A], A](_.headOption) { a =>
+      {
+        case x :: xs => a :: xs
+        case Nil     => Nil
+      }
     }
-  }
 
   def headOptionI: Optional[List[Int], Int]             = headOption[Int]
   def headOption2[A, B]: Optional[List[(A, B)], (A, B)] = headOption[(A, B)]
@@ -41,7 +42,9 @@ class OptionalSpec extends MonocleSuite {
   }
 
   test("Optional has a Choice instance") {
-    Choice[Optional].choice(headOptionI, Category[Optional].id[Int]).getOption(Left(List(1, 2, 3))) shouldEqual Some(1)
+    Choice[Optional]
+      .choice(headOptionI, Category[Optional].id[Int])
+      .getOption(Left(List(1, 2, 3))) shouldEqual Some(1)
   }
 
   test("getOption") {
@@ -94,5 +97,42 @@ class OptionalSpec extends MonocleSuite {
   test("modifyOption") {
     headOptionI.modifyOption(_ + 1)(List(1, 2, 3, 4)) shouldEqual Some(List(2, 2, 3, 4))
     headOptionI.modifyOption(_ + 1)(Nil) shouldEqual None
+  }
+
+  test("to") {
+    headOptionI.to(_.toString()).getAll(List(1, 2, 3)) shouldEqual List("1")
+  }
+
+  test("some") {
+    case class SomeTest(x: Int, y: Option[Int])
+    val obj = SomeTest(1, Some(2))
+
+    val optional = GenLens[SomeTest](_.y).asOptional
+
+    optional.some.getOption(obj) shouldEqual Some(2)
+    obj.applyOptional(optional).some.getOption shouldEqual Some(2)
+  }
+
+  test("withDefault") {
+    case class SomeTest(x: Int, y: Option[Int])
+    val objSome = SomeTest(1, Some(2))
+    val objNone = SomeTest(1, None)
+
+    val optional = GenLens[SomeTest](_.y).asOptional
+
+    optional.withDefault(0).getOption(objSome) shouldEqual Some(2)
+    optional.withDefault(0).getOption(objNone) shouldEqual Some(0)
+
+    objNone.applyOptional(optional).withDefault(0).getOption shouldEqual Some(0)
+  }
+
+  test("each") {
+    case class SomeTest(x: Int, y: List[Int])
+    val obj = SomeTest(1, List(1, 2, 3))
+
+    val optional = GenLens[SomeTest](_.y).asOptional
+
+    optional.each.getAll(obj) shouldEqual List(1, 2, 3)
+    obj.applyOptional(optional).each.getAll shouldEqual List(1, 2, 3)
   }
 }

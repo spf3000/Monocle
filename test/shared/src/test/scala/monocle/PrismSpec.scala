@@ -1,14 +1,13 @@
 package monocle
 
 import monocle.law.discipline.{OptionalTests, PrismTests, SetterTests, TraversalTests}
-import monocle.macros.GenIso
-import monocle.macros.GenPrism
-
+import monocle.macros.{GenIso, GenPrism}
 import cats.arrow.{Category, Compose}
 import cats.syntax.either._
 
 class PrismSpec extends MonocleSuite {
-  def _right[E, A]: Prism[Either[E, A], A] = Prism[Either[E, A], A](_.toOption)(Either.right)
+  def _right[E, A]: Prism[Either[E, A], A] =
+    Prism[Either[E, A], A](_.toOption)(Either.right)
   def _pright[E, A]: Prism[Either[E, A], A] =
     Prism.partial[Either[E, A], A](Function.unlift(_.toOption))(Either.right)
 
@@ -16,8 +15,8 @@ class PrismSpec extends MonocleSuite {
     Prism[Arities, Unit] {
       case Nullary() => Some(())
       case _         => None
-    } {
-      case () => Nullary()
+    } { case () =>
+      Nullary()
     }
   val _unary: Prism[Arities, Int] =
     Prism[Arities, Int] {
@@ -78,8 +77,10 @@ class PrismSpec extends MonocleSuite {
   }
 
   test("unapply") {
-    ((Nullary(): Arities) match { case _nullary(unit)       => unit }) shouldEqual (())
-    ((Unary(3): Arities) match { case _unary(value)         => value * 2 }) shouldEqual 6
+    // format: off
+    ((Nullary(): Arities) match { case _nullary(unit) => unit }) shouldEqual (())
+    // format: on
+    ((Unary(3): Arities) match { case _unary(value) => value * 2 }) shouldEqual 6
     ((Binary("foo", 7): Arities) match { case _binary(s, i) => s + i }) shouldEqual "foo7"
     ((Quintary('x', true, "bar", 13, 0.4): Arities) match {
       case _quintary(c, b, s, i, f) => "" + c + b + s + i + f
@@ -154,7 +155,8 @@ class PrismSpec extends MonocleSuite {
   }
 
   test("GenPrism nullary equality") {
-    GenPrism[Arities, Nullary] composeIso GenIso.unit[Nullary] shouldEqual _nullary
+    GenPrism[Arities, Nullary] composeIso GenIso
+      .unit[Nullary] shouldEqual _nullary
   }
 
   test("GenPrism unary equality") {
@@ -162,10 +164,49 @@ class PrismSpec extends MonocleSuite {
   }
 
   test("GenPrism binary equality") {
-    GenPrism[Arities, Binary] composeIso GenIso.fields[Binary] shouldEqual _binary
+    GenPrism[Arities, Binary] composeIso GenIso
+      .fields[Binary] shouldEqual _binary
   }
 
   test("GenPrism quintary equality") {
-    GenPrism[Arities, Quintary] composeIso GenIso.fields[Quintary] shouldEqual _quintary
+    GenPrism[Arities, Quintary] composeIso GenIso
+      .fields[Quintary] shouldEqual _quintary
+  }
+
+  test("to") {
+    i.to(_.toString()).getAll(I(1)) shouldEqual List("1")
+  }
+
+  test("some") {
+    case class SomeTest(y: Option[Int])
+    val obj = SomeTest(Some(2))
+
+    val prism = Iso[SomeTest, Option[Int]](_.y)(SomeTest).asPrism
+
+    prism.some.getOption(obj) shouldEqual Some(2)
+    obj.applyPrism(prism).some.getOption shouldEqual Some(2)
+  }
+
+  test("withDefault") {
+    case class SomeTest(y: Option[Int])
+    val objSome = SomeTest(Some(2))
+    val objNone = SomeTest(None)
+
+    val prism = Iso[SomeTest, Option[Int]](_.y)(SomeTest).asPrism
+
+    prism.withDefault(0).getOption(objSome) shouldEqual Some(2)
+    prism.withDefault(0).getOption(objNone) shouldEqual Some(0)
+
+    objNone.applyPrism(prism).withDefault(0).getOption shouldEqual Some(0)
+  }
+
+  test("each") {
+    case class SomeTest(y: List[Int])
+    val obj = SomeTest(List(1, 2, 3))
+
+    val prism = Iso[SomeTest, List[Int]](_.y)(SomeTest).asPrism
+
+    prism.each.getAll(obj) shouldEqual List(1, 2, 3)
+    obj.applyPrism(prism).each.getAll shouldEqual List(1, 2, 3)
   }
 }

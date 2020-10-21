@@ -4,8 +4,7 @@ import alleycats.std.all._
 import monocle.function.Plated
 import monocle.unsafe.MapTraversal._
 
-/**
-  * Show how could we use Optics to manipulate some Json AST
+/** Show how could we use Optics to manipulate some Json AST
   */
 class JsonExample extends MonocleSuite {
   sealed trait Json
@@ -15,9 +14,9 @@ class JsonExample extends MonocleSuite {
   case class JsArray(l: List[Json])         extends Json
   case class JsObject(m: Map[String, Json]) extends Json
 
-  val jsString = Prism[Json, String] { case JsString(s)            => Some(s); case _ => None }(JsString.apply)
-  val jsNumber = Prism[Json, Int] { case JsNumber(n)               => Some(n); case _ => None }(JsNumber.apply)
-  val jsArray  = Prism[Json, List[Json]] { case JsArray(a)         => Some(a); case _ => None }(JsArray.apply)
+  val jsString = Prism[Json, String] { case JsString(s) => Some(s); case _ => None }(JsString.apply)
+  val jsNumber = Prism[Json, Int] { case JsNumber(n) => Some(n); case _ => None }(JsNumber.apply)
+  val jsArray  = Prism[Json, List[Json]] { case JsArray(a) => Some(a); case _ => None }(JsArray.apply)
   val jsObject = Prism[Json, Map[String, Json]] { case JsObject(m) => Some(m); case _ => None }(JsObject.apply)
 
   val json: Json = JsObject(
@@ -200,7 +199,7 @@ class JsonExample extends MonocleSuite {
         a match {
           case j @ (JsString(_) | JsNumber(_)) => Applicative[F].pure(j)
           case JsArray(l)                      => l.traverse(f).map(JsArray)
-          case JsObject(m)                     => Traverse[Map[String, ?]].traverse(m)(f).map(JsObject)
+          case JsObject(m)                     => Traverse[Map[String, *]].traverse(m)(f).map(JsObject)
         }
     }
   }

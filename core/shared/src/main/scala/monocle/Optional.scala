@@ -1,11 +1,11 @@
 package monocle
 
-import cats.{Applicative, Monoid}
+import cats.{Applicative, Eq, Monoid}
 import cats.arrow.Choice
 import cats.syntax.either._
+import monocle.function.Each
 
-/**
-  * A [[POptional]] can be seen as a pair of functions:
+/** A [[POptional]] can be seen as a pair of functions:
   *  - `getOrModify: S      => Either[T, A]`
   *  - `set        : (B, S) => T`
   *
@@ -43,15 +43,13 @@ abstract class POptional[S, T, A, B] extends Serializable { self =>
   /** modify polymorphically the target of a [[POptional]] with a function */
   def modify(f: A => B): S => T
 
-  /**
-    * modify polymorphically the target of a [[POptional]] with a function.
+  /** modify polymorphically the target of a [[POptional]] with a function.
     * return empty if the [[POptional]] is not matching
     */
   @inline final def modifyOption(f: A => B): S => Option[T] =
     s => getOption(s).map(a => set(f(a))(s))
 
-  /**
-    * set polymorphically the target of a [[POptional]] with a value.
+  /** set polymorphically the target of a [[POptional]] with a value.
     * return empty if the [[POptional]] is not matching
     */
   @inline final def setOption(b: B): S => Option[T] =
@@ -84,29 +82,40 @@ abstract class POptional[S, T, A, B] extends Serializable { self =>
     )(b => _.bimap(self.set(b), other.set(b)))
 
   @inline final def first[C]: POptional[(S, C), (T, C), (A, C), (B, C)] =
-    POptional[(S, C), (T, C), (A, C), (B, C)] {
-      case (s, c) => getOrModify(s).bimap(_ -> c, _ -> c)
+    POptional[(S, C), (T, C), (A, C), (B, C)] { case (s, c) =>
+      getOrModify(s).bimap(_ -> c, _ -> c)
     } {
-      case (b, c) => {
-        case (s, c2) => setOption(b)(s).fold(set(b)(s) -> c2)(_ -> c)
+      case (b, c) => { case (s, c2) =>
+        setOption(b)(s).fold(set(b)(s) -> c2)(_ -> c)
       }
     }
 
   @inline final def second[C]: POptional[(C, S), (C, T), (C, A), (C, B)] =
-    POptional[(C, S), (C, T), (C, A), (C, B)] {
-      case (c, s) => getOrModify(s).bimap(c -> _, c -> _)
+    POptional[(C, S), (C, T), (C, A), (C, B)] { case (c, s) =>
+      getOrModify(s).bimap(c -> _, c -> _)
     } {
-      case (c, b) => {
-        case (c2, s) => setOption(b)(s).fold(c2 -> set(b)(s))(c -> _)
+      case (c, b) => { case (c2, s) =>
+        setOption(b)(s).fold(c2 -> set(b)(s))(c -> _)
       }
     }
 
-  /***************************************************************/
+  def some[A1, B1](implicit ev1: A =:= Option[A1], ev2: B =:= Option[B1]): POptional[S, T, A1, B1] =
+    adapt[Option[A1], Option[B1]] composePrism (std.option.pSome)
+
+  private[monocle] def adapt[A1, B1](implicit evA: A =:= A1, evB: B =:= B1): POptional[S, T, A1, B1] =
+    evB.substituteCo[POptional[S, T, A1, *]](evA.substituteCo[POptional[S, T, *, B]](this))
+
+  /** ************************************************************
+    */
   /** Compose methods between a [[POptional]] and another Optics */
-  /***************************************************************/
+  /** ************************************************************
+    */
   /** compose a [[POptional]] with a [[Fold]] */
   @inline final def composeFold[C](other: Fold[A, C]): Fold[S, C] =
     asFold composeFold other
+
+  /** Compose with a function lifted into a Getter */
+  @inline def to[C](f: A => C): Fold[S, C] = composeGetter(Getter(f))
 
   /** compose a [[POptional]] with a [[Getter]] */
   @inline final def composeGetter[C](other: Getter[A, C]): Fold[S, C] =
@@ -124,7 +133,9 @@ abstract class POptional[S, T, A, B] extends Serializable { self =>
   @inline final def composeOptional[C, D](other: POptional[A, B, C, D]): POptional[S, T, C, D] =
     new POptional[S, T, C, D] {
       def getOrModify(s: S): Either[T, C] =
-        self.getOrModify(s).flatMap(a => other.getOrModify(a).bimap(self.set(_)(s), identity))
+        self
+          .getOrModify(s)
+          .flatMap(a => other.getOrModify(a).bimap(self.set(_)(s), identity))
 
       def set(d: D): S => T =
         self.modify(other.set(d))
@@ -151,9 +162,11 @@ abstract class POptional[S, T, A, B] extends Serializable { self =>
   @inline final def composeIso[C, D](other: PIso[A, B, C, D]): POptional[S, T, C, D] =
     composeOptional(other.asOptional)
 
-  /********************************************/
+  /** *****************************************
+    */
   /** Experimental aliases of compose methods */
-  /********************************************/
+  /** *****************************************
+    */
   /** alias to composeTraversal */
   @inline final def ^|->>[C, D](other: PTraversal[A, B, C, D]): PTraversal[S, T, C, D] =
     composeTraversal(other)
@@ -174,14 +187,17 @@ abstract class POptional[S, T, A, B] extends Serializable { self =>
   @inline final def ^<->[C, D](other: PIso[A, B, C, D]): POptional[S, T, C, D] =
     composeIso(other)
 
-  /*********************************************************************/
+  /** ******************************************************************
+    */
   /** Transformation methods to view a [[POptional]] as another Optics */
-  /*********************************************************************/
+  /** ******************************************************************
+    */
   /** view a [[POptional]] as a [[Fold]] */
-  @inline final def asFold: Fold[S, A] = new Fold[S, A] {
-    def foldMap[M: Monoid](f: A => M)(s: S): M =
-      self.getOption(s) map f getOrElse Monoid[M].empty
-  }
+  @inline final def asFold: Fold[S, A] =
+    new Fold[S, A] {
+      def foldMap[M: Monoid](f: A => M)(s: S): M =
+        self.getOption(s) map f getOrElse Monoid[M].empty
+    }
 
   /** view a [[POptional]] as a [[PSetter]] */
   @inline final def asSetter: PSetter[S, T, A, B] =
@@ -194,10 +210,11 @@ abstract class POptional[S, T, A, B] extends Serializable { self =>
     }
 
   /** view a [[POptional]] as a [[PTraversal]] */
-  @inline final def asTraversal: PTraversal[S, T, A, B] = new PTraversal[S, T, A, B] {
-    def modifyF[F[_]: Applicative](f: A => F[B])(s: S): F[T] =
-      self.modifyF(f)(s)
-  }
+  @inline final def asTraversal: PTraversal[S, T, A, B] =
+    new PTraversal[S, T, A, B] {
+      def modifyF[F[_]: Applicative](f: A => F[B])(s: S): F[T] =
+        self.modifyF(f)(s)
+    }
 }
 
 object POptional extends OptionalInstances {
@@ -230,6 +247,9 @@ object POptional extends OptionalInstances {
       def modify(f: A => B): S => T =
         s => _getOrModify(s).fold(identity, a => _set(f(a))(s))
     }
+
+  implicit def optionalSyntax[S, A](self: Optional[S, A]): OptionalSyntax[S, A] =
+    new OptionalSyntax(self)
 }
 
 object Optional {
@@ -274,4 +294,14 @@ sealed abstract class OptionalInstances {
     def compose[A, B, C](f: Optional[B, C], g: Optional[A, B]): Optional[A, C] =
       g composeOptional f
   }
+}
+
+/** Extension methods for monomorphic Optional
+  */
+final case class OptionalSyntax[S, A](private val self: Optional[S, A]) extends AnyVal {
+  def each[C](implicit evEach: Each[A, C]): Traversal[S, C] =
+    self composeTraversal evEach.each
+
+  def withDefault[A1: Eq](defaultValue: A1)(implicit evOpt: A =:= Option[A1]): Optional[S, A1] =
+    self.adapt[Option[A1], Option[A1]] composeIso (std.option.withDefault(defaultValue))
 }

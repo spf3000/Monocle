@@ -1,12 +1,12 @@
 package monocle
 
-import cats.{Contravariant, Functor}
+import cats.{Contravariant, Eq, Functor}
 import cats.arrow.Choice
 import cats.arrow.Profunctor
 import cats.syntax.either._
+import monocle.function.Each
 
-/**
-  * A [[PSetter]] is a generalisation of Functor map:
+/** A [[PSetter]] is a generalisation of Functor map:
   *  - `map:    (A => B) => F[A] => F[B]`
   *  - `modify: (A => B) => S    => T`
   *
@@ -38,9 +38,17 @@ abstract class PSetter[S, T, A, B] extends Serializable { self =>
   @inline final def choice[S1, T1](other: PSetter[S1, T1, A, B]): PSetter[Either[S, S1], Either[T, T1], A, B] =
     PSetter[Either[S, S1], Either[T, T1], A, B](b => _.bimap(self.modify(b), other.modify(b)))
 
-  /*************************************************************/
+  def some[A1, B1](implicit ev1: A =:= Option[A1], ev2: B =:= Option[B1]): PSetter[S, T, A1, B1] =
+    adapt[Option[A1], Option[B1]] composePrism (std.option.pSome)
+
+  private[monocle] def adapt[A1, B1](implicit evA: A =:= A1, evB: B =:= B1): PSetter[S, T, A1, B1] =
+    evB.substituteCo[PSetter[S, T, A1, *]](evA.substituteCo[PSetter[S, T, *, B]](this))
+
+  /** **********************************************************
+    */
   /** Compose methods between a [[PSetter]] and another Optics */
-  /*************************************************************/
+  /** **********************************************************
+    */
   /** compose a [[PSetter]] with a [[PSetter]] */
   @inline final def composeSetter[C, D](other: PSetter[A, B, C, D]): PSetter[S, T, C, D] =
     new PSetter[S, T, C, D] {
@@ -71,9 +79,11 @@ abstract class PSetter[S, T, A, B] extends Serializable { self =>
   @inline final def composeIso[C, D](other: PIso[A, B, C, D]): PSetter[S, T, C, D] =
     composeSetter(other.asSetter)
 
-  /********************************************/
+  /** *****************************************
+    */
   /** Experimental aliases of compose methods */
-  /********************************************/
+  /** *****************************************
+    */
   /** alias to composeTraversal */
   @inline final def ^|->>[C, D](other: PTraversal[A, B, C, D]): PSetter[S, T, C, D] =
     composeTraversal(other)
@@ -123,6 +133,9 @@ object PSetter extends SetterInstances {
   /** create a [[PSetter]] from a Profunctor */
   def fromProfunctor[P[_, _], A, B, C](implicit P: Profunctor[P]): PSetter[P[B, C], P[A, C], A, B] =
     PSetter[P[B, C], P[A, C], A, B](f => P.lmap(_)(f))
+
+  implicit def setterSyntax[S, A](self: Setter[S, A]): SetterSyntax[S, A] =
+    new SetterSyntax(self)
 }
 
 object Setter {
@@ -152,4 +165,14 @@ sealed abstract class SetterInstances {
     def choice[A, B, C](f1: Setter[A, C], f2: Setter[B, C]): Setter[Either[A, B], C] =
       f1 choice f2
   }
+}
+
+/** Extension methods for monomorphic Setter
+  */
+final case class SetterSyntax[S, A](private val self: Setter[S, A]) extends AnyVal {
+  def each[C](implicit evEach: Each[A, C]): Setter[S, C] =
+    self composeTraversal evEach.each
+
+  def withDefault[A1: Eq](defaultValue: A1)(implicit evOpt: A =:= Option[A1]): Setter[S, A1] =
+    self.adapt[Option[A1], Option[A1]] composeIso (std.option.withDefault(defaultValue))
 }

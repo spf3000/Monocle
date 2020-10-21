@@ -13,8 +13,7 @@ object GenIso {
   /** Generate an [[Iso]] between an object `S` and `Unit`. */
   def unit[S]: Iso[S, Unit] = macro GenIsoImpl.genIso_unit_impl[S]
 
-  /**
-    * Generate an [[Iso]] between a case class `S` and its fields.
+  /** Generate an [[Iso]] between a case class `S` and its fields.
     *
     * Case classes with 0 fields will correspond with `Unit`, 1 with the field type, 2 or more with
     * a tuple of all field types in the same order as the fields themselves.
@@ -44,7 +43,7 @@ sealed abstract class GenIsoImplBase {
       q"""
         monocle.Iso[${sTpe}, Unit](Function.const(()))(Function.const(${obj}))
       """
-    } else {
+    } else
       caseAccessorsOf[S] match {
         case Nil =>
           val sTpeSym = sTpe.typeSymbol.companion
@@ -53,7 +52,6 @@ sealed abstract class GenIsoImplBase {
           """
         case _ => fail(s"$sTpe needs to be a case class with no accessor or an object.")
       }
-    }
   }
 }
 

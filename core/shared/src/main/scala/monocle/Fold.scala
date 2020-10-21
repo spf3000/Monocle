@@ -1,14 +1,14 @@
 package monocle
 
-import cats.{Foldable, Monoid}
+import cats.{Eq, Foldable, Monoid}
 import cats.arrow.Choice
 import cats.instances.int._
 import cats.instances.list._
 import cats.syntax.either._
+import monocle.function.Each
 import monocle.internal.Monoids
 
-/**
-  * A [[Fold]] can be seen as a [[Getter]] with many targets or
+/** A [[Fold]] can be seen as a [[Getter]] with many targets or
   * a weaker [[PTraversal]] which cannot modify its target.
   *
   * [[Fold]] is on the top of the Optic hierarchy which means that
@@ -20,8 +20,7 @@ import monocle.internal.Monoids
   */
 abstract class Fold[S, A] extends Serializable { self =>
 
-  /**
-    * map each target to a Monoid and combine the results
+  /** map each target to a Monoid and combine the results
     * underlying representation of [[Fold]], all [[Fold]] methods are defined in terms of foldMap
     */
   def foldMap[M: Monoid](f: A => M)(s: S): M
@@ -34,7 +33,7 @@ abstract class Fold[S, A] extends Serializable { self =>
   @inline final def getAll(s: S): List[A] =
     foldMap(List(_))(s)
 
-  /** find the first target matching the predicate  */
+  /** find the first target matching the predicate */
   @inline final def find(p: A => Boolean): S => Option[A] =
     foldMap(a => Some(a).filter(p))(_)(Monoids.firstOption)
 
@@ -85,15 +84,32 @@ abstract class Fold[S, A] extends Serializable { self =>
         s.fold(c => f(Either.left(c)), self.foldMap(a => f(Either.right(a))))
     }
 
-  /**********************************************************/
+  def each[C](implicit evEach: Each[A, C]): Fold[S, C] =
+    composeTraversal(evEach.each)
+
+  def some[A1](implicit ev1: A =:= Option[A1]): Fold[S, A1] =
+    adapt[Option[A1]] composePrism (std.option.pSome)
+
+  def withDefault[A1: Eq](defaultValue: A1)(implicit ev1: A =:= Option[A1]): Fold[S, A1] =
+    adapt[Option[A1]] composeIso (std.option.withDefault(defaultValue))
+
+  private def adapt[A1](implicit evA: A =:= A1): Fold[S, A1] =
+    evA.substituteCo[Fold[S, *]](this)
+
+  /** *******************************************************
+    */
   /** Compose methods between a [[Fold]] and another Optics */
-  /**********************************************************/
+  /** *******************************************************
+    */
   /** compose a [[Fold]] with a [[Fold]] */
   @inline final def composeFold[B](other: Fold[A, B]): Fold[S, B] =
     new Fold[S, B] {
       def foldMap[M: Monoid](f: B => M)(s: S): M =
         self.foldMap(other.foldMap(f)(_))(s)
     }
+
+  /** Compose with a function lifted into a Getter */
+  @inline def to[C](f: A => C): Fold[S, C] = composeGetter(Getter(f))
 
   /** compose a [[Fold]] with a [[Getter]] */
   @inline final def composeGetter[C](other: Getter[A, C]): Fold[S, C] =
@@ -119,9 +135,11 @@ abstract class Fold[S, A] extends Serializable { self =>
   @inline final def composeIso[B, C, D](other: PIso[A, B, C, D]): Fold[S, C] =
     composeFold(other.asFold)
 
-  /********************************************/
+  /** *****************************************
+    */
   /** Experimental aliases of compose methods */
-  /********************************************/
+  /** *****************************************
+    */
   /** alias to composeTraversal */
   @inline final def ^|->>[B, C, D](other: PTraversal[A, B, C, D]): Fold[S, C] =
     composeTraversal(other)
